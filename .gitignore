@@ -1,0 +1,4 @@
+secrets/
+.build_password
+.secret_map.json
+generate_pastebin.py
