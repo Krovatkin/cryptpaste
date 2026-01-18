@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Encrypted Pastebin</title>
+    <!-- Highlight.js for syntax highlighting - switching to a light theme -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <!-- JSZip for creating zip files -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f5f5f5;
+            color: #333;
+            margin: 0;
+            padding: 40px 20px;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            padding: 40px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            position: relative;
+        }
+        h1 {
+            margin-top: 0;
+            border-bottom: 2px solid #eee;
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+            font-weight: 300;
+        }
+        .header-actions {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .btn {
+            padding: 8px 16px;
+            border-radius: 4px;
+            border: none;
+            cursor: pointer;
+            font-size: 0.9em;
+            transition: background 0.2s;
+        }
+        .btn-primary {
+            background: #007bff;
+            color: white;
+        }
+        .btn-primary:hover {
+            background: #0056b3;
+        }
+        #download-btn {
+            display: none;
+            background: #28a745;
+            color: white;
+        }
+        #download-btn:hover {
+            background: #218838;
+        }
+        .paste-container {
+            margin-bottom: 30px;
+            border: 1px solid #eee;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+        .paste-header {
+            background-color: #fafafa;
+            padding: 10px 15px;
+            font-size: 0.9em;
+            color: #666;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
+            font-family: monospace;
+        }
+        .paste-content-display {
+            background-color: white;
+        }
+        pre {
+            margin: 0;
+            padding: 15px;
+            overflow-x: auto;
+        }
+        /* Loading state */
+        .loading {
+            padding: 20px;
+            text-align: center;
+            color: #888;
+            font-style: italic;
+        }
+        .error {
+            color: #d32f2f;
+        }
+        #retry-btn {
+            display: none;
+            margin: 20px auto;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="header-actions">
+        <h1>Encrypted Pastebin</h1>
+        <button id="download-btn" class="btn">Download ZIP</button>
+    </div>
+    
+    <button id="retry-btn" class="btn btn-primary">Enter Password</button>
+
+    
+    <div class="paste-container" data-language="cpp">
+        <div class="paste-header">
+            <span>Encrypted File</span>
+            <span class="status">Locked</span>
+        </div>
+        <div class="encrypted-payload" style="display:none;">
+U2FsdGVkX1/jjP98hPuf1SKqmPRG4npM/CM4X8mNJlLNH40h5Ci+3/javjh/Jy8o
+B7CH8627PMSTE1iAya1beBZYAz2j5+Z5t5CzONPBqRJNnavVjs5B8hQjyjcvzkC2
+04oqBonDBoRmZEMc5jWUCOw29NfyJLrTlucF6HunLn6UB4e6ukXanvZq09YAL6+v
+gMT2Km3ithiXWLSJ9ZuGynl/zDbjTt/Ljn79voGmIQzA0yI0t01rkN6Ku62zZcke
+55h6tCM89ozAsIzMmvtcDjV+YxanJ9unS1CLn1DzgbIw1/5lF7psJuG4QdfyNMsJ
+qF7LiiLiVDZN23OL5y1YwkFPNHGDm0dpV0S3GWtmaYRGlEvQJlXfQHbupmnmrVaE
+RvSCvWD6NfbiTw6Hk80l96onc/hj4i1SF05xRTFsPavBvtpQH7qgV4NjS+amqW9D
+1JDP8XhFyxYUfaMQukpe3ReeFhgZ50HwF9gPwREPjtn0Ao7elDYonO8SFXvKPP6U
+X2YNS8hjAx5aojpu6iV+CD6+5nkFAi++AAObXg9m+TU=
+        </div>
+        <div class="paste-content-display">
+            <div class="loading">Waiting for decryption...</div>
+        </div>
+    </div>
+
+</div>
+
+<script>
+// Logic to Decrypt OpenSSL
+async function decryptOpenSSL(base64Ciphertext, password) {
+  try {
+      // 1. Convert Base64 to Uint8Array
+      // Remove newlines and whitespace
+      const cleanBase64 = base64Ciphertext.replace(/\s/g, '');
+      const binaryString = atob(cleanBase64);
+      const data = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        data[i] = binaryString.charCodeAt(i);
+      }
+
+      // 2. Extract Salt (OpenSSL format: "Salted__" + 8 bytes salt + ciphertext)
+      // Check for "Salted__" magic header
+      const magic = new TextDecoder().decode(data.slice(0, 8));
+      if (magic !== "Salted__") {
+          throw new Error("Invalid OpenSSL encrypted data: Missing 'Salted__' header");
+      }
+
+      const salt = data.slice(8, 16);
+      const ciphertext = data.slice(16);
+
+      // 3. Import Password
+      const passwordKey = await window.crypto.subtle.importKey(
+        "raw",
+        new TextEncoder().encode(password),
+        { name: "PBKDF2" },
+        false,
+        ["deriveBits"]
+      );
+
+      // 4. Derive Key and IV
+      const derivedBits = await window.crypto.subtle.deriveBits(
+        {
+          name: "PBKDF2",
+          salt: salt,
+          iterations: 100000,
+          hash: "SHA-256"
+        },
+        passwordKey,
+        384 // 256 (Key) + 128 (IV)
+      );
+
+      const keyBytes = derivedBits.slice(0, 32);
+      const ivBytes = derivedBits.slice(32, 48);
+
+      // 5. Import the derived key for AES-CBC
+      const aesKey = await window.crypto.subtle.importKey(
+        "raw",
+        keyBytes,
+        { name: "AES-CBC" },
+        false,
+        ["decrypt"]
+      );
+
+      // 6. Decrypt
+      const decryptedContent = await window.crypto.subtle.decrypt(
+        { name: "AES-CBC", iv: ivBytes },
+        aesKey,
+        ciphertext
+      );
+
+      return new TextDecoder().decode(decryptedContent);
+  } catch (e) {
+      throw e;
+  }
+}
+
+async function tryDecryptAll(password) {
+    const pastes = document.querySelectorAll('.paste-container');
+    let successCount = 0;
+    
+    for (const paste of pastes) {
+        const payloadDiv = paste.querySelector('.encrypted-payload');
+        const displayDiv = paste.querySelector('.paste-content-display');
+        const statusSpan = paste.querySelector('.status');
+        const headerSpan = paste.querySelector('.paste-header span:first-child');
+        const language = paste.dataset.language || 'text';
+
+        // Skip if already successfully decrypted
+        if (statusSpan.textContent === "Decrypted") {
+            successCount++;
+            continue;
+        }
+
+        if (payloadDiv) {
+            const encryptedText = payloadDiv.textContent.trim();
+            
+            try {
+                // Update text to show we are trying
+                const loadingDiv = displayDiv.querySelector('.loading');
+                if (loadingDiv) loadingDiv.textContent = "Attempting decryption...";
+
+                const decryptedJson = await decryptOpenSSL(encryptedText, password);
+                
+                // Parse JSON Payload
+                // Format: { "filename": "example.txt", "content": "file content" }
+                const data = JSON.parse(decryptedJson);
+                
+                const filename = data.filename || "unknown_file";
+                const content = data.content || "";
+
+                // Success: Update UI
+                statusSpan.textContent = "Decrypted";
+                statusSpan.style.color = "#28a745"; // Green
+                
+                // Reveal real filename
+                headerSpan.textContent = filename;
+                
+                // Store decrypted data for download functionality
+                paste.dataset.filename = filename; // Restore filename to DOM
+                paste.dataset.decryptedContent = content;
+                
+                const pre = document.createElement('pre');
+                const code = document.createElement('code');
+                code.className = `language-${language}`;
+                code.textContent = content;
+                
+                pre.appendChild(code);
+                displayDiv.innerHTML = '';
+                displayDiv.appendChild(pre);
+                
+                hljs.highlightElement(code);
+                successCount++;
+
+            } catch (err) {
+                console.error(err);
+                // Show error but don't fail hard, user can try another password
+                statusSpan.textContent = "Locked"; 
+                statusSpan.style.color = "#666";
+                
+                // Reset display to loading/waiting state if it was failed
+                const loadingDiv = displayDiv.querySelector('.loading');
+                if (loadingDiv) {
+                    loadingDiv.innerHTML = `<span class="error">Decryption failed. Wrong password?</span>`;
+                }
+            }
+        }
+    }
+    return successCount === pastes.length;
+}
+
+// Download Button Logic
+async function downloadZip() {
+    const zip = new JSZip();
+    const pastes = document.querySelectorAll('.paste-container');
+    let count = 0;
+    
+    pastes.forEach(paste => {
+        const filename = paste.dataset.filename || `file_${count}.txt`;
+        const content = paste.dataset.decryptedContent;
+        if (content) {
+            zip.file(filename, content);
+            count++;
+        }
+    });
+    
+    if (count > 0) {
+        const content = await zip.generateAsync({type: "blob"});
+        const url = URL.createObjectURL(content);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = "decrypted_files.zip";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    } else {
+        alert("No decrypted files to download!");
+    }
+}
+
+async function requestPasswordAndDecrypt() {
+    const retryBtn = document.getElementById('retry-btn');
+    retryBtn.style.display = "none";
+    
+    // Using simple window.prompt as requested
+    // Small timeout to allow UI to render if called immediately on load
+    await new Promise(r => setTimeout(r, 50));
+    
+    const pwd = prompt("Please enter the decryption password:");
+    
+    if (pwd) {
+        const success = await tryDecryptAll(pwd);
+        if (success) {
+            localStorage.setItem('pastebin_password', pwd);
+            document.getElementById('download-btn').style.display = 'block';
+        } else {
+            localStorage.removeItem('pastebin_password');
+            retryBtn.style.display = "block";
+            retryBtn.textContent = "Retry Password";
+        }
+    } else {
+         retryBtn.style.display = "block";
+    }
+}
+
+// UI Management
+document.addEventListener('DOMContentLoaded', async () => {
+    const retryBtn = document.getElementById('retry-btn');
+    retryBtn.onclick = requestPasswordAndDecrypt;
+    
+    document.getElementById('download-btn').onclick = downloadZip;
+
+    // Check LocalStorage first
+    const storedPassword = localStorage.getItem('pastebin_password');
+
+    if (storedPassword) {
+        const authenticated = await tryDecryptAll(storedPassword);
+        if (!authenticated) {
+            console.log("Stored password failed");
+            localStorage.removeItem('pastebin_password');
+            retryBtn.style.display = "block";
+            retryBtn.textContent = "Stored password invalid. Click to login.";
+        } else {
+            // Already authenticated
+            document.getElementById('download-btn').style.display = 'block';
+        }
+    } else {
+        // No stored password, prompt immediately
+        await requestPasswordAndDecrypt();
+    }
+});
+</script>
+
+</body>
+</html>
